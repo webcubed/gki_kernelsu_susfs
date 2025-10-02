@@ -18,8 +18,8 @@ jobs:
       - build-a14-6-1
 
     env:
-      GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
-      RELEASE_NAME: "GKI Kernels With WKSU & SUSFS v1.5.9"
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_NAME: "GKI Kernels With WKSU & SUSFS v1.5.10"
       RELEASE_BODY:
     steps:
       - name: Maximize Build Space
@@ -78,7 +78,7 @@ jobs:
         run: |
             LATEST_TAG=$(gh api repos/${{ github.repository }}/tags --jq '.[0].name')
             if [ -z "$LATEST_TAG" ]; then
-              LATEST_TAG="v1.5.9-r0"
+              LATEST_TAG="v1.5.10-r0"
             fi
             
             NEW_TAG=$(echo "$LATEST_TAG" | awk -F'-r' '{suffix=$2; if (!suffix) suffix=0; suffix++; printf "%s-r%d", $1, suffix}')
@@ -107,7 +107,7 @@ jobs:
           Features:
           -> Wild KSU
           -> Multi Manager Support for WKSU Manager & KernelSU-Next Manager (Only Install One)
-          -> SUSFS ඞ v1.5.9
+          -> SUSFS ඞ v1.5.10
           -> Scope-Minimized Manual hooks v1.4
           -> Magic Mount Support
           -> Simple Maphide for LineageOS Detections
@@ -117,9 +117,15 @@ jobs:
           -> Wireguard Support
           -> BBR v1 Support
       
+          Build Types:
+          -> **Make Build**: Built using traditional make
+          -> **Normal Build**: Built using Bazel or build.sh
+          -> **For avbroot users**: Try the normal build from CI to get proper KMI (Kernel Module Interface) compatibility
+
           Notes:
           -> SUS SU Mode 2 will show as disabled or not compatble due to non-kprobe hooks and is not needed anymore!
           -> Official Kernel Flasher is broken with latest susfs, try https://github.com/fatalcoder524/KernelFlasher/
+          -> **Warning**: boot.img files may not boot on some Android 16 devices
       
           Module: 
           -> https://github.com/sidex15/ksu_module_susfs

@@ -153,30 +153,44 @@ jobs:
           cd "$CONFIG/common"
           patch -p1 -F 3 < "../../kernel_patches/gki_ptrace.patch"
 
-            - name: Add KernelSU
-              run: |
-                  echo "Changing to configuration directory: $CONFIG..."
-                  cd "$CONFIG"
+      - name: Add KernelSU
+        run: |
+          cd "$CONFIG"
+          curl -LSs "https://raw.githubusercontent.com/WildKernels/Wild_KSU/wild/kernel/setup.sh" | bash -s wild
+          
+      - name: Apply SUSFS Patches for KernelSU Variants
+        run: |
+          cd "$CONFIG"
+          
+          # Apply core SUSFS patches
+          cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch ./common/
+          cd common
+          patch -p1 --forward < 50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch
+          cd ..
+          cp ../susfs4ksu/kernel_patches/fs/* ./common/fs/
+          cp ../susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
+          
+          # Apply KSU integration patches
+          cd ./Wild_KSU
+          cp ../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch .
+          #cp ../../kernel_patches/wild/susfs_fix_patches/v1.5.10/10_enable_susfs_for_ksu.patch ./
+          patch -p1 --forward < 10_enable_susfs_for_ksu.patch || true
+          
+          # Apply compatibility fixes
+          cp ../../kernel_patches/wild/susfs_fix_patches/v1.5.10/fix_core_hook.c.patch ./
+          patch -p1 --forward --fuzz=3 < fix_core_hook.c.patch
+          
+          ## Skip fix_rules.c.patch for Android 14 with kernel 6.1
+          #if [ "${{ inputs.android_version }}" != "android14" ] && [ "${{ inputs.kernel_version }}" != "6.1" ]; then
+          #  cp ../../kernel_patches/wild/susfs_fix_patches/v1.5.10/fix_rules.c.patch ./
+          #  patch -p1 --forward < fix_rules.c.patch
+          #fi
 
-                  echo "Adding SukiSU..."
-                  curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-main
+          cp ../../kernel_patches/wild/susfs_fix_patches/v1.5.10/fix_sucompat.c.patch ./
+          patch -p1 --forward < fix_sucompat.c.patch
 
-            - name: Apply SUSFS Patches for KernelSU Variants
-              run: |
-                  echo "Changing to configuration directory: $CONFIG..."
-                  cd "$CONFIG"
-                  echo "Applying SUSFS patches..."
-
-                  # Copy SUSFS patches
-                  cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch ./common/
-                  cp ../susfs4ksu/kernel_patches/fs/* ./common/fs/
-                  cp ../susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
-                  echo "Applying SUSFS patches for SukiSU..."
-                  cd ./KernelSU
-                  echo "Applying SukiSU specific SUSFS patch..."
-                  # Change to common directory and apply common SUSFS patch
-                  cd ../common
-                  patch -p1 < 50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch || true
+          cp ../../kernel_patches/wild/susfs_fix_patches/v1.5.10/fix_kernel_compat.c.patch ./
+          patch -p1 --forward < fix_kernel_compat.c.patch
 
       - name: Getting KernelSU Version
         run: |
@@ -191,12 +205,6 @@ jobs:
           cd "$CONFIG/common"
           cp ../../kernel_patches/wild/hooks/scope_min_manual_hooks_v1.4.patch ./
           patch -p1 --forward -F 3 < scope_min_manual_hooks_v1.4.patch
-
-            - name: Apply Hide Stuff Patches
-              run: |
-                          cd "$CONFIG/common"
-                  cp ../../kernel_patches/69_hide_stuff.patch ./
-                  patch -p1 --forward -F 3 < 69_hide_stuff.patch
 
       - name: Apply Module Symbol Version Fix Patch
         run: |
@@ -304,44 +312,26 @@ jobs:
           # Remove check_defconfig
           sed -i 's/check_defconfig//' ./common/build.config.gki
 
-            - name: Add SUSFS Configuration Settings
-              run: |
-                  echo "Changing to configuration directory: $CONFIG..."
-                  cd "$CONFIG"
+      - name: Change Kernel Name
+        run: |
+          cd "$CONFIG"
+          
+          perl -pi -e 's/-dirty//' ./common/scripts/setlocalversion
+          perl -pi -e 's/-maybe-dirty//g' ./build/kernel/kleaf/impl/stamp.bzl
 
-                  # Add SUSFS configuration settings
-                  echo "CONFIG_KSU_SUSFS=y" >> ./common/arch/arm64/configs/gki_defconfig
-                  echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
-                  echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> ./common/arch/arm64/configs/gki_defconfig
-                  echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
-                  echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
-                  echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
-                  echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> ./common/arch/arm64/configs/gki_defconfig
-                  echo "CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n" >> ./common/arch/arm64/configs/gki_defconfig
-                  echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
-                  echo "CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y" >> ./common/arch/arm64/configs/gki_defconfig
-                  echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> ./common/arch/arm64/configs/gki_defconfig
-                  echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> ./common/arch/arm64/configs/gki_defconfig
-                  echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y" >> ./common/arch/arm64/configs/gki_defconfig
-                  echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> ./common/arch/arm64/configs/gki_defconfig
-                  echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> ./common/arch/arm64/configs/gki_defconfig
-
-                  echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> ./common/arch/arm64/configs/gki_defconfig
-
-            - name: Change Kernel Name
-              if: ${{ inputs.use_make == false }}
-              run: |
-                  cd "$CONFIG"
-                  if [ -f "build/build.sh" ]; then
-                      perl -pi -e 's/-dirty//' ./common/scripts/setlocalversion
-                      perl -0777 -pi -e 's/(echo "\$res")(?!.*echo "\$res")/echo "\$res-WKSU-\$KSUVER-SUSFS-v1.5.9-Wild"/s' ./common/scripts/setlocalversion
-                      perl -pi -e 's{UTS_VERSION="\$\(echo \$UTS_VERSION \$CONFIG_FLAGS \$TIMESTAMP \| cut -b -\$UTS_LEN\)"}{UTS_VERSION="#1 SMP PREEMPT Sun Apr 20 04:20:00 UTC 2025"}' ./common/scripts/mkcompile_h
-                  else
-                      #Remove -maybe-dirty
-                      perl -pi -e 's/-maybe-dirty//g' ./build/kernel/kleaf/impl/stamp.bzl
-                      
-                      #Set Kernel Name
-                      echo "CONFIG_LOCALVERSION=\"-WKSU-$KSUVER-SUSFS-v1.5.9-Wild\"" >> ./common/arch/arm64/configs/gki_defconfig
+          #Set Kernel Timestamp
+          perl -pi -e 's{UTS_VERSION="\$\(echo \$UTS_VERSION \$CONFIG_FLAGS \$TIMESTAMP \| cut -b -\$UTS_LEN\)"}{UTS_VERSION="#1 SMP PREEMPT Sun Apr 20 04:20:00 UTC 2025"}' ./common/scripts/mkcompile_h
+          
+          #Set Kernel Name
+          if [ "${{ matrix.build_type }}" = "make" ] && [ "${{ inputs.kernel_version }}" = "6.6" ]; then
+            perl -0777 -pi -e 's/(echo "\$\{KERNELVERSION\}\$\{file_localversion\}\$\{config_localversion\}\$\{LOCALVERSION\}\$\{scm_version\}")/echo "\$\{KERNELVERSION\}-${{ inputs.android_version }}-Wild"/s' ./common/scripts/setlocalversion
+          elif [ "${{ matrix.build_type }}" = "make" ]; then
+            perl -0777 -pi -e 's/(echo "\$res")(?!.*echo "\$res")/echo "\-${{ inputs.android_version }}-Wild"/s' ./common/scripts/setlocalversion
+          elif [ "${{ matrix.build_type }}" = "normal" ] && [ "${{ inputs.kernel_version }}" = "6.6" ]; then
+            perl -0777 -pi -e 's/(echo "\$\{KERNELVERSION\}\$\{file_localversion\}\$\{config_localversion\}\$\{LOCALVERSION\}\$\{scm_version\}")/echo "\$\{KERNELVERSION\}\$\{file_localversion\}\$\{config_localversion\}\$\{LOCALVERSION\}\$\{scm_version\}-Wild"/s' ./common/scripts/setlocalversion
+          elif [ "${{ matrix.build_type }}" = "normal" ]; then
+            perl -0777 -pi -e 's/(echo "\$res")(?!.*echo "\$res")/echo "\$res-Wild"/s' ./common/scripts/setlocalversion
+          fi
 
           #Set Kernel Timestamp
           perl -pi -e 's/build-timestamp = \$\(or \$\(KBUILD_BUILD_TIMESTAMP\), \$\(build-timestamp-auto\)\)/build-timestamp = "Sun Apr 20 04:20:00 UTC 2025"/' ./common/init/Makefile
@@ -363,75 +353,45 @@ jobs:
                     tools/bazel build --config=fast --lto=thin //common:kernel_aarch64_dist || exit 1
                   fi
 
-      - name: Create Bootimgs Folder and Copy Images for Android 12/13
-        if: ${{ (inputs.android_version == 'android12' || inputs.android_version == 'android13') && matrix.build_type == 'normal' }}
+      - name: Detect Clang Version from Configs
+        if: ${{ matrix.build_type == 'make' }}
         run: |
-          mkdir bootimgs
-
-          echo "Creating bootimgs folder and copying images..."
-          cp ./$CONFIG/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist/Image ./bootimgs
-          cp ./$CONFIG/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist/Image.lz4 ./bootimgs
-          cp ./$CONFIG/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist/Image ./
-          cp ./$CONFIG/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist/Image.lz4 ./
-
-          # Create gzip of the Image file
-          gzip -n -k -f -9 ./Image > ./Image.gz
-          gzip -n -k -f -9 ./Image > ./bootimgs/Image.gz
-
-      - name: Create Bootimgs Folder and Copy Images for Android 14/15
-        if: ${{ (inputs.android_version == 'android14' || inputs.android_version == 'android15') && matrix.build_type == 'normal' }}
-        run: |
-          mkdir bootimgs
-
-          echo "Creating bootimgs folder and copying images..."
-          cp ./$CONFIG/bazel-bin/common/kernel_aarch64/Image ./bootimgs
-          cp ./$CONFIG/bazel-bin/common/kernel_aarch64/Image.lz4 ./bootimgs
-          cp ./$CONFIG/bazel-bin/common/kernel_aarch64/Image ./
-          cp ./$CONFIG/bazel-bin/common/kernel_aarch64/Image.lz4 ./
-
-          # Create gzip of the Image file
-          gzip -n -k -f -9 ./Image > ./Image.gz
-          gzip -n -k -f -9 ./Image > ./bootimgs/Image.gz
-
-            - name: Detect Clang Version from Configs
-              if: ${{ matrix.build_type == 'make' }}
-                    run: |
-                  KERNEL_PATH="$GITHUB_WORKSPACE/$CONFIG"
-                  DEFCONFIG="$KERNEL_PATH/common/arch/arm64/configs/gki_defconfig"
-                  BUILDCONFIG="$KERNEL_PATH/common/build.config.gki"
-                  CONSTANTSCONFIG="$KERNEL_PATH/common/build.config.constants"
-                  CLANG_VERSION=""
-                  CLANG_BIN_PATH=""
-                  if grep -q '^CONFIG_CLANG_VERSION=' "$DEFCONFIG" 2>/dev/null; then
-                    CLANG_VERSION=$(grep '^CONFIG_CLANG_VERSION=' "$DEFCONFIG" 2>/dev/null | head -n1 | cut -d'=' -f2 | tr -d '"' | xargs)
-                  elif grep -q '^CLANG_VERSION=' "$BUILDCONFIG" 2>/dev/null; then
-                    CLANG_VERSION=$(grep '^CLANG_VERSION=' "$BUILDCONFIG" 2>/dev/null | head -n1 | cut -d'=' -f2 | xargs)
-                  elif grep -q '^CLANG_VERSION=' "$CONSTANTSCONFIG" 2>/dev/null; then
-                    CLANG_VERSION=$(grep '^CLANG_VERSION=' "$CONSTANTSCONFIG" 2>/dev/null | head -n1 | cut -d'=' -f2 | xargs)
-                    CLANG_VERSION="clang-$CLANG_VERSION"
-                  else
-                    echo "No clang version found in config, will auto-detect in prebuilts."
-                  fi
-                  if [ -z "$CLANG_VERSION" ]; then
-                    if [ -d "$KERNEL_PATH/prebuilts/clang/host/linux-x86" ]; then
-                      CLANG_VERSION=$(ls -d "$KERNEL_PATH"/prebuilts/clang/host/linux-x86/clang-r*/ | tail -n 1 | xargs basename)
-                      CLANG_BIN_PATH="$KERNEL_PATH/prebuilts/clang/host/linux-x86/$CLANG_VERSION/bin"
-                    elif [ -d "$KERNEL_PATH/prebuilts-master/clang/host/linux-x86" ]; then
-                      CLANG_VERSION=$(ls -d "$KERNEL_PATH"/prebuilts-master/clang/host/linux-x86/clang-r*/ | tail -n 1 | xargs basename)
-                      CLANG_BIN_PATH="$KERNEL_PATH/prebuilts-master/clang/host/linux-x86/$CLANG_VERSION/bin"
-                    else
-                      CLANG_VERSION="clang"
-                      CLANG_BIN_PATH="$KERNEL_PATH/prebuilts/clang/host/linux-x86/$CLANG_VERSION/bin" # dummy
-                    fi
-                  else
-                    if [ -d "$KERNEL_PATH/prebuilts/clang/host/linux-x86" ]; then
-                      CLANG_BIN_PATH="$KERNEL_PATH/prebuilts/clang/host/linux-x86/$CLANG_VERSION/bin"
-                    else
-                      CLANG_BIN_PATH="$KERNEL_PATH/prebuilts-master/clang/host/linux-x86/$CLANG_VERSION/bin"
-                    fi
-                  fi
-                          echo "CLANG_VERSION=$CLANG_VERSION" >> $GITHUB_ENV
-                  echo "CLANG_BIN_PATH=$CLANG_BIN_PATH" >> $GITHUB_ENV
+          KERNEL_PATH="$GITHUB_WORKSPACE/$CONFIG"
+          DEFCONFIG="$KERNEL_PATH/common/arch/arm64/configs/gki_defconfig"
+          BUILDCONFIG="$KERNEL_PATH/common/build.config.gki"
+          CONSTANTSCONFIG="$KERNEL_PATH/common/build.config.constants"
+          CLANG_VERSION=""
+          CLANG_BIN_PATH=""
+          if grep -q '^CONFIG_CLANG_VERSION=' "$DEFCONFIG" 2>/dev/null; then
+            CLANG_VERSION=$(grep '^CONFIG_CLANG_VERSION=' "$DEFCONFIG" 2>/dev/null | head -n1 | cut -d'=' -f2 | tr -d '"' | xargs)
+          elif grep -q '^CLANG_VERSION=' "$BUILDCONFIG" 2>/dev/null; then
+            CLANG_VERSION=$(grep '^CLANG_VERSION=' "$BUILDCONFIG" 2>/dev/null | head -n1 | cut -d'=' -f2 | xargs)
+          elif grep -q '^CLANG_VERSION=' "$CONSTANTSCONFIG" 2>/dev/null; then
+            CLANG_VERSION=$(grep '^CLANG_VERSION=' "$CONSTANTSCONFIG" 2>/dev/null | head -n1 | cut -d'=' -f2 | xargs)
+            CLANG_VERSION="clang-$CLANG_VERSION"
+          else
+            echo "No clang version found in config, will auto-detect in prebuilts."
+          fi
+          if [ -z "$CLANG_VERSION" ]; then
+            if [ -d "$KERNEL_PATH/prebuilts/clang/host/linux-x86" ]; then
+              CLANG_VERSION=$(ls -d "$KERNEL_PATH"/prebuilts/clang/host/linux-x86/clang-r*/ | tail -n 1 | xargs basename)
+              CLANG_BIN_PATH="$KERNEL_PATH/prebuilts/clang/host/linux-x86/$CLANG_VERSION/bin"
+            elif [ -d "$KERNEL_PATH/prebuilts-master/clang/host/linux-x86" ]; then
+              CLANG_VERSION=$(ls -d "$KERNEL_PATH"/prebuilts-master/clang/host/linux-x86/clang-r*/ | tail -n 1 | xargs basename)
+              CLANG_BIN_PATH="$KERNEL_PATH/prebuilts-master/clang/host/linux-x86/$CLANG_VERSION/bin"
+            else
+              CLANG_VERSION="clang"
+              CLANG_BIN_PATH="$KERNEL_PATH/prebuilts/clang/host/linux-x86/$CLANG_VERSION/bin" # dummy
+            fi
+          else
+            if [ -d "$KERNEL_PATH/prebuilts/clang/host/linux-x86" ]; then
+              CLANG_BIN_PATH="$KERNEL_PATH/prebuilts/clang/host/linux-x86/$CLANG_VERSION/bin"
+            else
+              CLANG_BIN_PATH="$KERNEL_PATH/prebuilts-master/clang/host/linux-x86/$CLANG_VERSION/bin"
+            fi
+          fi
+          echo "CLANG_VERSION=$CLANG_VERSION" >> $GITHUB_ENV
+          echo "CLANG_BIN_PATH=$CLANG_BIN_PATH" >> $GITHUB_ENV
 
 
       - name: Build Kernel
@@ -484,10 +444,10 @@ jobs:
             MAKE_ARGS="LLVM_IAS=1 $MAKE_ARGS"
           fi
           
-          make -j$(nproc --all) O=out $MAKE_ARGS KCFLAGS+="-Wno-error -O2 -flto=thin -fno-stack-protector" gki_defconfig || exit 1
+          make -j$(nproc --all) O=out $MAKE_ARGS KCFLAGS+="-Wno-error -O2 -flto=thin -fno-stack-protector" gki_defconfig Image Image.gz Image.lz4 || exit 1
           make -j$(nproc --all) O=out $MAKE_ARGS KCFLAGS+="-Wno-error -O2 -flto=thin -fno-stack-protector" || exit 1
 
-      - name: Create Kernel ZIP
+      - name: Create AK3 ZIP
         run: |
           # Try different Image locations based on build type
           if [ -f "$CONFIG/common/out/arch/arm64/boot/Image" ]; then
@@ -512,8 +472,51 @@ jobs:
           ZIP_NAME="WKSU-$KSUVER-${{ inputs.android_version }}-${{ inputs.kernel_version }}.$SUBLEVEL_FOR_NAME-${{ inputs.os_patch_level }}-AnyKernel3.zip"
           zip -r "../$ZIP_NAME" ./*
 
+      - name: Create Bootimgs Folder and Copy Images for Android 12/13
+        if: ${{ matrix.build_type == 'make' }}
+        run: |
+          mkdir bootimgs
+
+          echo "Creating bootimgs folder and copying images..."
+          cp $CONFIG/common/out/arch/arm64/boot/Image ./bootimgs
+          cp $CONFIG/common/out/arch/arm64/boot/Image.gz ./bootimgs
+          cp $CONFIG/common/out/arch/arm64/boot/Image.lz4 ./bootimgs
+          cp $CONFIG/common/out/arch/arm64/boot/Image ./
+          cp $CONFIG/common/out/arch/arm64/boot/Image.gz ./
+          cp $CONFIG/common/out/arch/arm64/boot/Image.lz4 ./
+
+      - name: Create Bootimgs Folder and Copy Images for Android 12/13
+        if: ${{ (inputs.android_version == 'android12' || inputs.android_version == 'android13') && matrix.build_type == 'normal' }}
+        run: |
+          mkdir bootimgs
+
+          echo "Creating bootimgs folder and copying images..."
+          cp ./$CONFIG/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist/Image ./bootimgs
+          cp ./$CONFIG/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist/Image.lz4 ./bootimgs
+          cp ./$CONFIG/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist/Image ./
+          cp ./$CONFIG/out/${{ inputs.android_version }}-${{ inputs.kernel_version }}/dist/Image.lz4 ./
+
+          # Create gzip of the Image file
+          gzip -n -k -f -9 ./Image > ./Image.gz
+          gzip -n -k -f -9 ./Image > ./bootimgs/Image.gz
+
+      - name: Create Bootimgs Folder and Copy Images for Android 14/15
+        if: ${{ (inputs.android_version == 'android14' || inputs.android_version == 'android15') && matrix.build_type == 'normal' }}
+        run: |
+          mkdir bootimgs
+
+          echo "Creating bootimgs folder and copying images..."
+          cp ./$CONFIG/bazel-bin/common/kernel_aarch64/Image ./bootimgs
+          cp ./$CONFIG/bazel-bin/common/kernel_aarch64/Image.lz4 ./bootimgs
+          cp ./$CONFIG/bazel-bin/common/kernel_aarch64/Image ./
+          cp ./$CONFIG/bazel-bin/common/kernel_aarch64/Image.lz4 ./
+
+          # Create gzip of the Image file
+          gzip -n -k -f -9 ./Image > ./Image.gz
+          gzip -n -k -f -9 ./Image > ./bootimgs/Image.gz
+
       - name: Android 12 boot image build script
-        if: ${{ inputs.android_version == 'android12' && matrix.build_type == 'normal' }}
+        if: ${{ inputs.android_version == 'android12' }}
         run: |
           echo "Changing to configuration directory: $CONFIG..."
           cd bootimgs
@@ -566,7 +569,7 @@ jobs:
           cp ./boot-lz4.img ../WKSU-$KSUVER-${{ inputs.android_version }}-${{ inputs.kernel_version }}.$SUBLEVEL_FOR_NAME-${{ inputs.os_patch_level }}-boot-lz4.img
 
       - name: Android 13/14/15 boot image build script
-        if: ${{ (inputs.android_version == 'android13' || inputs.android_version == 'android14' || inputs.android_version == 'android15') && matrix.build_type == 'normal' }}
+        if: ${{ inputs.android_version == 'android13' || inputs.android_version == 'android14' || inputs.android_version == 'android15' }}
         run: |
           cd bootimgs
 
