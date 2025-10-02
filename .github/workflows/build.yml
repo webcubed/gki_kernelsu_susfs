@@ -265,9 +265,10 @@ jobs:
           
           # KernelSU Core Configuration
           echo "CONFIG_KSU=y" >> "$defconfig"
+          echo "CONFIG_KSU_KPROBES_HOOK=n" >> "$defconfig"
           echo "CONFIG_KPM=y" >> "$defconfig"
-          echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> "$defconfig"
-          echo "CONFIG_KSU_MANUAL_HOOK=y" >> "$defconfig"
+          # echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> "$defconfig"
+          # echo "CONFIG_KSU_MANUAL_HOOK=y" >> "$defconfig"
           # Mountify Support
           echo "CONFIG_TMPFS_XATTR=y" >> "$defconfig"
           echo "CONFIG_TMPFS_POSIX_ACL=y" >> "$defconfig"
