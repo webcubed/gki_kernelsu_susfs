@@ -179,37 +179,22 @@ jobs:
 
       - name: Apply SUSFS Patches for KernelSU Variants
         run: |
+          echo "Changing to configuration directory: $CONFIG..."
           cd "$CONFIG"
-          
-          # Apply core SUSFS patches
+
+          echo "Applying SUSFS patches..."
+
+          # Copy SUSFS patches
           cp ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch ./common/
-          cd common
-          patch -p1 --forward < 50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch
-          cd ..
           cp ../susfs4ksu/kernel_patches/fs/* ./common/fs/
           cp ../susfs4ksu/kernel_patches/include/linux/* ./common/include/linux/
-          
-          # Apply KSU integration patches
-          cd ./KernelSU
-          cp ../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch .
-          #cp ../../kernel_patches/wild/susfs_fix_patches/v1.5.10/10_enable_susfs_for_ksu.patch ./
-          patch -p1 --forward < 10_enable_susfs_for_ksu.patch || true
-          
-          # Apply compatibility fixes
-          cp ../../kernel_patches/wild/susfs_fix_patches/v1.5.10/fix_core_hook.c.patch ./
-          patch -p1 --forward --fuzz=3 < fix_core_hook.c.patch
-          
-          ## Skip fix_rules.c.patch for Android 14 with kernel 6.1
-          #if [ "${{ inputs.android_version }}" != "android14" ] && [ "${{ inputs.kernel_version }}" != "6.1" ]; then
-          #  cp ../../kernel_patches/wild/susfs_fix_patches/v1.5.10/fix_rules.c.patch ./
-          #  patch -p1 --forward < fix_rules.c.patch
-          #fi
 
-          cp ../../kernel_patches/wild/susfs_fix_patches/v1.5.10/fix_sucompat.c.patch ./
-          patch -p1 --forward < fix_sucompat.c.patch
-
-          cp ../../kernel_patches/wild/susfs_fix_patches/v1.5.10/fix_kernel_compat.c.patch ./
-          patch -p1 --forward < fix_kernel_compat.c.patch
+          echo "Applying SUSFS patches for SukiSU..."
+          cd KernelSU
+          echo "Applying SukiSU specific SUSFS patch..."
+          # Change to common directory and apply common SUSFS patch
+          cd ../common
+          patch -p1 < 50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch || true
 
       - name: Getting KernelSU Version
         run: |
@@ -265,10 +250,9 @@ jobs:
           
           # KernelSU Core Configuration
           echo "CONFIG_KSU=y" >> "$defconfig"
-          echo "CONFIG_KSU_KPROBES_HOOK=n" >> "$defconfig"
-          # echo "CONFIG_KPM=y" >> "$defconfig"
-          # echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> "$defconfig"
-          # echo "CONFIG_KSU_MANUAL_HOOK=y" >> "$defconfig"
+          echo "CONFIG_KPM=y" >> "$defconfig"
+          echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> "$defconfig"
+          echo "CONFIG_KSU_MANUAL_HOOK=y" >> "$defconfig"
           # Mountify Support
           echo "CONFIG_TMPFS_XATTR=y" >> "$defconfig"
           echo "CONFIG_TMPFS_POSIX_ACL=y" >> "$defconfig"
@@ -285,21 +269,33 @@ jobs:
           echo "CONFIG_TCP_CONG_BIC=n" >> "$defconfig"
           echo "CONFIG_TCP_CONG_WESTWOOD=n" >> "$defconfig"
           echo "CONFIG_TCP_CONG_HTCP=n" >> "$defconfig"
+          echo "CONFIG_DEFAULT_BBR=y" >> "$defconfig" 
           
           # IPSet support
+          echo "CONFIG_BPF_STREAM_PARSER=y" >> "$defconfig"
+          echo "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y" >> "$defconfig"
+          echo "CONFIG_NETFILTER_XT_SET=y" >> "$defconfig"
           echo "CONFIG_IP_SET=y" >> "$defconfig"
-          echo "CONFIG_IP_SET_MAX=256" >> "$defconfig"
+          echo "CONFIG_IP_SET_MAX=65534" >> "$defconfig"
           echo "CONFIG_IP_SET_BITMAP_IP=y" >> "$defconfig"
           echo "CONFIG_IP_SET_BITMAP_IPMAC=y" >> "$defconfig"
           echo "CONFIG_IP_SET_BITMAP_PORT=y" >> "$defconfig"
           echo "CONFIG_IP_SET_HASH_IP=y" >> "$defconfig"
+          echo "CONFIG_IP_SET_HASH_IPMARK=y" >> "$defconfig"
           echo "CONFIG_IP_SET_HASH_IPPORT=y" >> "$defconfig"
           echo "CONFIG_IP_SET_HASH_IPPORTIP=y" >> "$defconfig"
           echo "CONFIG_IP_SET_HASH_IPPORTNET=y" >> "$defconfig"
+          echo "CONFIG_IP_SET_HASH_IPMAC=y" >> "$defconfig"
+          echo "CONFIG_IP_SET_HASH_MAC=y" >> "$defconfig"
+          echo "CONFIG_IP_SET_HASH_NETPORTNET=y" >> "$defconfig"
           echo "CONFIG_IP_SET_HASH_NET=y" >> "$defconfig"
           echo "CONFIG_IP_SET_HASH_NETNET=y" >> "$defconfig"
           echo "CONFIG_IP_SET_HASH_NETPORT=y" >> "$defconfig"
           echo "CONFIG_IP_SET_HASH_NETIFACE=y" >> "$defconfig"
+          echo "CONFIG_IP_SET_LIST_SET=y" >> "$defconfig"
+          echo "CONFIG_IP6_NF_NAT=y" >> "$defconfig"
+          echo "CONFIG_IP6_NF_TARGET_MASQUERADE=y" >> "$defconfig"
+
           # SUSFS Configuration
           echo "CONFIG_KSU_SUSFS=y" >> "$defconfig"
           echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> "$defconfig"
@@ -329,7 +325,7 @@ jobs:
           echo "CONFIG_LTO_CLANG=y" >> "$defconfig"
           echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y" >> "$defconfig"
           echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE_O3=n" >> "$defconfig"
-          
+
           # Remove check_defconfig
           sed -i 's/check_defconfig//' ./common/build.config.gki
 
