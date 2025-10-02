@@ -89,6 +89,7 @@ jobs:
           git clone https://github.com/WildKernels/AnyKernel3.git -b "$ANYKERNEL_BRANCH"
           git clone https://gitlab.com/simonpunk/susfs4ksu.git -b "$SUSFS_BRANCH"
           git clone https://github.com/WildKernels/kernel_patches.git
+          git clone https://github.com/ShirkNeko/SukiSU_patch.git
 
       - name: Initialize and Sync Kernel Source
         run: |
@@ -158,6 +159,24 @@ jobs:
           cd "$CONFIG"
           curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-main
           
+      - name: Apply New Hooks Patches
+        run: |
+          echo "Changing to configuration directory: $CONFIG..."
+          cd "$CONFIG/common"
+
+          echo "Applying hooks for SukiSU..."
+          cp ../../SukiSU_patch/hooks/syscall_hooks.patch ./
+          patch -p1 -F 3 < syscall_hooks.patch
+
+      - name: Apply Hide Stuff Patches
+        run: |
+          echo "Changing to configuration directory: $CONFIG..."
+          cd "$CONFIG/common"
+          # Apply additional patch
+
+          cp ../../SukiSU_patch/69_hide_stuff.patch ./
+          patch -p1 -F 3 < 69_hide_stuff.patch
+
       - name: Apply SUSFS Patches for KernelSU Variants
         run: |
           cd "$CONFIG"
@@ -246,8 +265,9 @@ jobs:
           
           # KernelSU Core Configuration
           echo "CONFIG_KSU=y" >> "$defconfig"
-          echo "CONFIG_KSU_KPROBES_HOOK=n" >> "$defconfig"
-          
+          echo "CONFIG_KPM=y" >> "$defconfig"
+          echo "CONFIG_KSU_SUSFS_SUS_SU=n" >> "$defconfig"
+          echo "CONFIG_KSU_MANUAL_HOOK=y" >> "$defconfig"
           # Mountify Support
           echo "CONFIG_TMPFS_XATTR=y" >> "$defconfig"
           echo "CONFIG_TMPFS_POSIX_ACL=y" >> "$defconfig"
@@ -264,21 +284,33 @@ jobs:
           echo "CONFIG_TCP_CONG_BIC=n" >> "$defconfig"
           echo "CONFIG_TCP_CONG_WESTWOOD=n" >> "$defconfig"
           echo "CONFIG_TCP_CONG_HTCP=n" >> "$defconfig"
+          echo "CONFIG_DEFAULT_BBR=y" >> "$defconfig" 
           
           # IPSet support
+          echo "CONFIG_BPF_STREAM_PARSER=y" >> "$defconfig"
+          echo "CONFIG_NETFILTER_XT_MATCH_ADDRTYPE=y" >> "$defconfig"
+          echo "CONFIG_NETFILTER_XT_SET=y" >> "$defconfig"
           echo "CONFIG_IP_SET=y" >> "$defconfig"
-          echo "CONFIG_IP_SET_MAX=256" >> "$defconfig"
+          echo "CONFIG_IP_SET_MAX=65534" >> "$defconfig"
           echo "CONFIG_IP_SET_BITMAP_IP=y" >> "$defconfig"
           echo "CONFIG_IP_SET_BITMAP_IPMAC=y" >> "$defconfig"
           echo "CONFIG_IP_SET_BITMAP_PORT=y" >> "$defconfig"
           echo "CONFIG_IP_SET_HASH_IP=y" >> "$defconfig"
+          echo "CONFIG_IP_SET_HASH_IPMARK=y" >> "$defconfig"
           echo "CONFIG_IP_SET_HASH_IPPORT=y" >> "$defconfig"
           echo "CONFIG_IP_SET_HASH_IPPORTIP=y" >> "$defconfig"
           echo "CONFIG_IP_SET_HASH_IPPORTNET=y" >> "$defconfig"
+          echo "CONFIG_IP_SET_HASH_IPMAC=y" >> "$defconfig"
+          echo "CONFIG_IP_SET_HASH_MAC=y" >> "$defconfig"
+          echo "CONFIG_IP_SET_HASH_NETPORTNET=y" >> "$defconfig"
           echo "CONFIG_IP_SET_HASH_NET=y" >> "$defconfig"
           echo "CONFIG_IP_SET_HASH_NETNET=y" >> "$defconfig"
           echo "CONFIG_IP_SET_HASH_NETPORT=y" >> "$defconfig"
           echo "CONFIG_IP_SET_HASH_NETIFACE=y" >> "$defconfig"
+          echo "CONFIG_IP_SET_LIST_SET=y" >> "$defconfig"
+          echo "CONFIG_IP6_NF_NAT=y" >> "$defconfig"
+          echo "CONFIG_IP6_NF_TARGET_MASQUERADE=y" >> "$defconfig"
+
           # SUSFS Configuration
           echo "CONFIG_KSU_SUSFS=y" >> "$defconfig"
           echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> "$defconfig"
@@ -308,50 +340,38 @@ jobs:
           echo "CONFIG_LTO_CLANG=y" >> "$defconfig"
           echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y" >> "$defconfig"
           echo "CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE_O3=n" >> "$defconfig"
-          
+
           # Remove check_defconfig
           sed -i 's/check_defconfig//' ./common/build.config.gki
 
       - name: Change Kernel Name
         run: |
+          echo "Changing to configuration directory: $CONFIG..."
           cd "$CONFIG"
-          
-          perl -pi -e 's/-dirty//' ./common/scripts/setlocalversion
-          perl -pi -e 's/-maybe-dirty//g' ./build/kernel/kleaf/impl/stamp.bzl
 
-          #Set Kernel Timestamp
-          perl -pi -e 's{UTS_VERSION="\$\(echo \$UTS_VERSION \$CONFIG_FLAGS \$TIMESTAMP \| cut -b -\$UTS_LEN\)"}{UTS_VERSION="#1 SMP PREEMPT Sun Apr 20 04:20:00 UTC 2025"}' ./common/scripts/mkcompile_h
-          
-          #Set Kernel Name
-          if [ "${{ matrix.build_type }}" = "make" ] && [ "${{ inputs.kernel_version }}" = "6.6" ]; then
-            perl -0777 -pi -e 's/(echo "\$\{KERNELVERSION\}\$\{file_localversion\}\$\{config_localversion\}\$\{LOCALVERSION\}\$\{scm_version\}")/echo "\$\{KERNELVERSION\}-${{ inputs.android_version }}-Wild"/s' ./common/scripts/setlocalversion
-          elif [ "${{ matrix.build_type }}" = "make" ]; then
-            perl -0777 -pi -e 's/(echo "\$res")(?!.*echo "\$res")/echo "\-${{ inputs.android_version }}-Wild"/s' ./common/scripts/setlocalversion
-          elif [ "${{ matrix.build_type }}" = "normal" ] && [ "${{ inputs.kernel_version }}" = "6.6" ]; then
-            perl -0777 -pi -e 's/(echo "\$\{KERNELVERSION\}\$\{file_localversion\}\$\{config_localversion\}\$\{LOCALVERSION\}\$\{scm_version\}")/echo "\$\{KERNELVERSION\}\$\{file_localversion\}\$\{config_localversion\}\$\{LOCALVERSION\}\$\{scm_version\}-Wild"/s' ./common/scripts/setlocalversion
-          elif [ "${{ matrix.build_type }}" = "normal" ]; then
-            perl -0777 -pi -e 's/(echo "\$res")(?!.*echo "\$res")/echo "\$res-Wild"/s' ./common/scripts/setlocalversion
+          # Run perl command to modify UTS_VERSION
+
+          CURRENT_TIME=$(date -u +"%a %b %d %H:%M:%S UTC %Y")
+
+          echo "CURRENT_TIME=$CURRENT_TIME"
+          perl -pi -e "s{UTS_VERSION=\"\\\$\(echo \\\$UTS_VERSION \\\$CONFIG_FLAGS \\\$TIMESTAMP \\| cut -b -\\\$UTS_LEN\)\"}{UTS_VERSION=\"#1 SMP PREEMPT $CURRENT_TIME\"}" ./common/scripts/mkcompile_h
+
+
+          # perl -pi -e 's{UTS_VERSION="\$\(echo \$UTS_VERSION \$CONFIG_FLAGS \$TIMESTAMP \| cut -b -\$UTS_LEN\)"}{UTS_VERSION="#1 SMP PREEMPT Wed Mar 12 13:40:07 UTC 2025"}' ./common/scripts/mkcompile_h
+          # Apply specific Makefile modification for kernel versions 6.1 and 6.6 only
+
+
+          sed -i '$s|echo "\$res"|echo "\$res-g8d713f9e8e7b-ab13202960"|' ./common/scripts/setlocalversion
+          if [ -f "build/build.sh" ]; then
+            sed -i 's/-dirty//' ./common/scripts/setlocalversion
+          else
+            sed -i 's/build-timestamp = $(or $(KBUILD_BUILD_TIMESTAMP), $(build-timestamp-auto))/build-timestamp = "Sun Apr 20 04:20:00 UTC 2025"/' ./common/init/Makefile
+            sed -i '/^[[:space:]]*"protected_exports_list"[[:space:]]*:[[:space:]]*"android\/abi_gki_protected_exports_aarch64",$/d' ./common/BUILD.bazel
+            rm -rf ./common/android/abi_gki_protected_exports_*
+            sed -i "/stable_scmversion_cmd/s/-maybe-dirty//g" ./build/kernel/kleaf/impl/stamp.bzl
+            sed -E -i "/^CONFIG_LOCALVERSION=/ s/(.*)\"/\\1-gd7dac4b14270-ab12946699\"/" "$defconfig"
           fi
 
-          #Set Kernel Timestamp
-          perl -pi -e 's/build-timestamp = \$\(or \$\(KBUILD_BUILD_TIMESTAMP\), \$\(build-timestamp-auto\)\)/build-timestamp = "Sun Apr 20 04:20:00 UTC 2025"/' ./common/init/Makefile
-              
-          #Remove Abi Exports and Error
-          rm -rf ./common/android/abi_gki_protected_exports_*
-          perl -pi -e 's/^\s*"protected_exports_list"\s*:\s*"android\/abi_gki_protected_exports_aarch64",\s*$//;' ./common/BUILD.bazel
-
-            - name: Build
-              if: ${{ matrix.build_type == 'normal' }}
-              run: |
-                  set -e
-                  set -x
-                  cd "$CONFIG"
-                  echo "Building the kernel..."
-                  if [ -f "build/build.sh" ]; then
-                    LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh || exit 1
-                  else
-                    tools/bazel build --config=fast --lto=thin //common:kernel_aarch64_dist || exit 1
-                  fi
 
       - name: Detect Clang Version from Configs
         if: ${{ matrix.build_type == 'make' }}
