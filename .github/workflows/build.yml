@@ -152,7 +152,7 @@ jobs:
       - name: Add SukiSU
         run: |
           cd "$CONFIG"
-          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-main
+          curl -LSs "https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh" | bash -s main
           
       - name: Apply SUSFS Patches for KernelSU Variants
         run: |
