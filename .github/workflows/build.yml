@@ -39,9 +39,21 @@ jobs:
           # Set CONFIG as an environment variable for future steps
           echo "CONFIG=$CONFIG" >> $GITHUB_ENV
 
+      - name: Restore ccache cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          # Include revision when provided; empty value is acceptable
+          key: ccache-${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-${{ inputs.revision }}
+          restore-keys: |
+            ccache-${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.sub_level }}-${{ inputs.os_patch_level }}-
+            ccache-${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ inputs.sub_level }}-
+            ccache-${{ inputs.android_version }}-${{ inputs.kernel_version }}-
+            ccache-
+
       - name: Setup Build Environment
         run: |
-          sudo apt update && sudo apt install -y libelf-dev libssl-dev build-essential
+          sudo apt update && sudo apt install -y libelf-dev libssl-dev build-essential ccache
           
           AOSP_MIRROR=https://android.googlesource.com
           BRANCH=main-kernel-2025
@@ -54,6 +66,13 @@ jobs:
           echo "UNPACK_BOOTIMG=$GITHUB_WORKSPACE/mkbootimg/unpack_bootimg.py" >> $GITHUB_ENV
           echo "BOOT_SIGN_KEY_PATH=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/share/avb/testkey_rsa2048.pem" >> $GITHUB_ENV
           echo "PATH=$GITHUB_WORKSPACE/kernel-build-tools/linux-x86/bin:$PATH" >> $GITHUB_ENV
+          # ccache configuration
+          echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
+          echo "CCACHE_MAXSIZE=5G" >> $GITHUB_ENV
+          echo "CCACHE_COMPRESS=1" >> $GITHUB_ENV
+          echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE" >> $GITHUB_ENV
+          # Prepend ccache wrapper directory so clang/ld/llvm-* are intercepted
+          echo "PATH=/usr/lib/ccache:$PATH" >> $GITHUB_ENV
           
           mkdir -p ./git-repo
           curl https://storage.googleapis.com/git-repo-downloads/repo > ./git-repo/repo
@@ -307,6 +326,8 @@ jobs:
           set -e
           set -x
           cd "$CONFIG"
+          # Guarantee ccache wrappers are first in PATH for normal build
+          export PATH=/usr/lib/ccache:$PATH
           echo "Building the kernel..."
           if [ -f "build/build.sh" ]; then
             LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh || exit 1
@@ -359,11 +380,13 @@ jobs:
         if: ${{ matrix.build_type == 'make' }}
         run: |
           KERNEL_PATH="$GITHUB_WORKSPACE/$CONFIG"
-          CLANG_BIN_PATH="${{ env.CLANG_BIN_PATH }}"
-          CLANG_VERSION="${{ env.CLANG_VERSION }}"
+          # Use values exported to $GITHUB_ENV earlier (avoid expression syntax for static analyzer)
+          CLANG_BIN_PATH="$CLANG_BIN_PATH"
+          CLANG_VERSION="$CLANG_VERSION"
           
           if [ -d "$CLANG_BIN_PATH" ] && [ -x "$CLANG_BIN_PATH/clang" ]; then
-            export PATH="$CLANG_BIN_PATH:$PATH"
+            # Ensure ccache wrappers take precedence while still exposing prebuilt clang
+            export PATH="/usr/lib/ccache:$CLANG_BIN_PATH:$PATH"
             SELECTED_CLANG="$CLANG_BIN_PATH/clang"
           elif command -v clang >/dev/null 2>&1; then
             SELECTED_CLANG="$(command -v clang)"
@@ -555,10 +578,31 @@ jobs:
           $AVBTOOL add_hash_footer --partition_name boot --partition_size $((64 * 1024 * 1024)) --image boot-lz4.img --algorithm SHA256_RSA2048 --key $BOOT_SIGN_KEY_PATH
           cp ./boot-lz4.img ../WKSU-$KSUVER-${{ inputs.android_version }}-${{ inputs.kernel_version }}.$SUBLEVEL_FOR_NAME-${{ inputs.os_patch_level }}-boot-lz4.img
           
+      - name: Determine Artifact Sublevel
+        run: |
+          if [ -n "$ACTUAL_SUBLEVEL" ]; then
+            echo "ARTIFACT_SUBLEVEL=$ACTUAL_SUBLEVEL" >> $GITHUB_ENV
+          else
+            echo "ARTIFACT_SUBLEVEL=${{ inputs.sub_level }}" >> $GITHUB_ENV
+          fi
+          # Build a unified artifact name here to simplify later step expressions
+          if [ -z "$KSUVER" ]; then
+            echo "KSUVER_UNSET_WARNING=1" >> $GITHUB_ENV
+          fi
+          echo "ARTIFACT_NAME=WKSU-${KSUVER:-unknown}-${{ inputs.android_version }}-${{ inputs.kernel_version }}.${ARTIFACT_SUBLEVEL}-${{ inputs.os_patch_level }}-${{ matrix.build_type }}" >> $GITHUB_ENV
+
       - name: Upload Build Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: WKSU-${{ env.KSUVER }}-${{ inputs.android_version }}-${{ inputs.kernel_version }}.${{ env.ACTUAL_SUBLEVEL || inputs.sub_level }}-${{ inputs.os_patch_level }}-${{ matrix.build_type }}
+          # Use inputs-based artifact name; KSUVER/actual sublevel already encoded in filenames themselves
+          name: build-artifacts-${{ inputs.android_version }}-${{ inputs.kernel_version }}-${{ matrix.build_type }}
           path: |
             *.zip
             *.img
+
+      - name: Show ccache stats
+        if: always()
+        run: |
+          echo "ccache statistics:" || true
+          ccache -s || true
+          du -sh ~/.ccache || true
